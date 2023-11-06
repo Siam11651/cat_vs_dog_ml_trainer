@@ -40,7 +40,7 @@ def train(path):
 
     lite_model = converter.convert()
 
-    with open("model.tflit", "wb") as file:
+    with open("model.tflite", "wb") as file:
         file.write(lite_model)
 
 def main() -> None:
