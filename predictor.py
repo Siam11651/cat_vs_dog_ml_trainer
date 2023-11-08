@@ -1,24 +1,16 @@
 import tensorflow as tf
 from PIL import Image
 import numpy as np
+from argparse import ArgumentParser
 
-interpreter = tf.lite.Interpreter(model_path="model.tflite")
+parser = ArgumentParser(prog="predictor", description="Detect whether an image contains a cat or not")
 
-interpreter.allocate_tensors()
+parser.add_argument("--model", help="Set path to model", type=str, default="model/model.keras")
+parser.add_argument("--image", help="Set path to image", type=str)
 
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+args = parser.parse_args()
+model = tf.keras.saving.load_model(args.model)
+image = np.array([Image.open(args.image).resize((128, 128))], dtype=np.float32) / 255.0
+output = model.predict(image)
 
-image = np.array([np.array(Image.open("dataset/test/12463.jpg").resize((128, 128)), dtype=np.float32) / 255.0])
-
-interpreter.set_tensor(input_details[0]["index"], image)
-interpreter.invoke()
-
-output = interpreter.get_tensor(output_details[0]["index"])
-
-if output[0][0] <= 0.1:
-    print("cat", end=" ")
-else:
-    print("no cat", end=" ")
-
-print(output[0][0])
+print(output) # 0 means cat

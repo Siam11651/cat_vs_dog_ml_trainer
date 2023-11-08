@@ -9,7 +9,7 @@ for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 def train(path):
-    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=8, image_size=(128, 128))
+    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=16, image_size=(128, 128))
     dataset = dataset.map(lambda x, y: (x / 255.0, y))
     dataset_size = len(dataset)
     train_size = int(0.7 * dataset_size)
@@ -35,12 +35,13 @@ def train(path):
     model.compile(optimizer='adam', loss=tf.keras.losses.BinaryCrossentropy(), metrics=['accuracy'])
     model.fit(train_set, epochs=15, validation_data=validate_set)
     model.evaluate(evaluate_set)
+    model.save("model/model.keras")
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
 
     lite_model = converter.convert()
 
-    with open("model.tflite", "wb") as file:
+    with open("model/model.tflite", "wb") as file:
         file.write(lite_model)
 
 def main() -> None:
