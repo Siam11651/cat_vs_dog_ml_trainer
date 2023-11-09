@@ -9,7 +9,7 @@ for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 def train(path):
-    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=16, image_size=(128, 128))
+    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=64, image_size=(128, 128), color_mode="rgb")
     dataset = dataset.map(lambda x, y: (x / 255.0, y))
     dataset_size = len(dataset)
     train_size = int(0.7 * dataset_size)
@@ -21,24 +21,26 @@ def train(path):
 
     model = tf.keras.Sequential(
     [
-        tf.keras.layers.Conv2D(16, (3, 3), activation='relu', padding='same', input_shape=(128, 128, 3)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same", input_shape=(128, 128, 3)),
         tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same'),
+        tf.keras.layers.Conv2D(64, (3, 3), activation="relu", padding="same"),
         tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Conv2D(16, (3, 3), activation='relu', padding='same'),
+        tf.keras.layers.Conv2D(128, (3, 3), activation="relu", padding="same"),
+        tf.keras.layers.MaxPooling2D((2, 2)),
+        tf.keras.layers.Conv2D(256, (3, 3), activation="relu", padding="same"),
         tf.keras.layers.MaxPooling2D((2, 2)),
         tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(256, activation='relu'),
-        tf.keras.layers.Dense(1, activation='sigmoid')
+        tf.keras.layers.Dense(128, activation="relu"),
+        tf.keras.layers.Dropout(0.5),
+        tf.keras.layers.Dense(1, activation="sigmoid")
     ])
     
-    model.compile(optimizer='adam', loss=tf.keras.losses.BinaryCrossentropy(), metrics=['accuracy'])
-    model.fit(train_set, epochs=15, validation_data=validate_set)
+    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+    model.fit(train_set, epochs=20, validation_data=validate_set)
     model.evaluate(evaluate_set)
     model.save("model/model.keras")
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
-
     lite_model = converter.convert()
 
     with open("model/model.tflite", "wb") as file:
