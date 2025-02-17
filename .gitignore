@@ -1,2 +1,5 @@
 dataset/
 model/
+.conda-*
+.venv
+dataset.tar.gz

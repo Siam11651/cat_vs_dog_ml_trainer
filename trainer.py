@@ -9,7 +9,9 @@ for gpu in gpus:
     tf.config.experimental.set_memory_growth(gpu, True)
 
 def train(path):
-    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=64, image_size=(128, 128), color_mode="rgb")
+    IMAGE_DIM = 256
+
+    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=64, image_size=(IMAGE_DIM, IMAGE_DIM), color_mode="rgb")
     dataset = dataset.map(lambda x, y: (x / 255.0, y))
     dataset_size = len(dataset)
     train_size = int(0.7 * dataset_size)
@@ -21,7 +23,7 @@ def train(path):
 
     model = tf.keras.Sequential(
     [
-        tf.keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same", input_shape=(128, 128, 3)),
+        tf.keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same", input_shape=(IMAGE_DIM, IMAGE_DIM, 3)),
         tf.keras.layers.MaxPooling2D((2, 2)),
         tf.keras.layers.Conv2D(64, (3, 3), activation="relu", padding="same"),
         tf.keras.layers.MaxPooling2D((2, 2)),
