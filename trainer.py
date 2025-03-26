@@ -1,55 +1,108 @@
 import os
-import random
-import numpy as np
-import tensorflow as tf
+import time
+import copy
+import torch
+from tqdm import tqdm
+from torch import nn
+from torch import optim
+from torch.optim import lr_scheduler
+from torchvision import datasets, models, transforms
 
-gpus = tf.config.experimental.list_physical_devices("GPU")
+data_transforms = {
+    "train": transforms.Compose([
+        transforms.RandomRotation(5),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomResizedCrop(224, scale=(0.96, 1.0), ratio=(0.95, 1.05)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+    "validation": transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    ]),
+}
 
-for gpu in gpus:
-    tf.config.experimental.set_memory_growth(gpu, True)
+DATA_DIR = "dataset"
+train_dir = os.path.join(DATA_DIR, "train")
+val_dir = os.path.join(DATA_DIR, "validation")
+image_datasets = {x: datasets.ImageFolder(os.path.join(DATA_DIR, x),
+                                          data_transforms[x])
+                  for x in ["train", "validation"]}
+dataloaders = {x: torch.utils.data.DataLoader(image_datasets[x], batch_size=32,
+                                              shuffle=True, num_workers=4)
+               for x in ["train", "validation"]}
+dataset_sizes = {x: len(image_datasets[x]) for x in ["train", "validation"]}
+class_names = image_datasets["train"].classes
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
 
-def train(path):
-    IMAGE_DIM = 256
+for param in model.parameters():
+    param.requires_grad = False
 
-    dataset = tf.keras.utils.image_dataset_from_directory(path, batch_size=64, image_size=(IMAGE_DIM, IMAGE_DIM), color_mode="rgb")
-    dataset = dataset.map(lambda x, y: (x / 255.0, y))
-    dataset_size = len(dataset)
-    train_size = int(0.7 * dataset_size)
-    validate_size = int(0.2 * dataset_size)
-    evaluate_size = dataset_size - (train_size + validate_size)
-    train_set = dataset.take(train_size)
-    validate_set = dataset.skip(train_size).take(validate_size)
-    evaluate_set = dataset.skip(train_size + validate_size).take(evaluate_size)
+model.fc = nn.Linear(model.fc.in_features, 2)
+model = model.to(DEVICE)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.fc.parameters(), lr=0.001)
+exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
 
-    model = tf.keras.Sequential(
-    [
-        tf.keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same", input_shape=(IMAGE_DIM, IMAGE_DIM, 3)),
-        tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Conv2D(64, (3, 3), activation="relu", padding="same"),
-        tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Conv2D(128, (3, 3), activation="relu", padding="same"),
-        tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Conv2D(256, (3, 3), activation="relu", padding="same"),
-        tf.keras.layers.MaxPooling2D((2, 2)),
-        tf.keras.layers.Flatten(),
-        tf.keras.layers.Dense(128, activation="relu"),
-        tf.keras.layers.Dropout(0.5),
-        tf.keras.layers.Dense(1, activation="sigmoid")
-    ])
-    
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    model.fit(train_set, epochs=20, validation_data=validate_set)
-    model.evaluate(evaluate_set)
-    model.save("model/model.keras")
+def train_model(_model, _criterion, _optimizer, _scheduler, _num_epochs):
+    since = time.time()
+    best_model_wts = copy.deepcopy(_model.state_dict())
+    best_acc = 0.0
 
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    lite_model = converter.convert()
+    for epoch in range(_num_epochs):
+        print(f"Epoch {epoch + 1}/{_num_epochs}")
+        print("-" * 10)
 
-    with open("model/model.tflite", "wb") as file:
-        file.write(lite_model)
+        for phase in ["train", "validation"]:
+            if phase == "train":
+                _model.train()
+            else:
+                _model.eval()
 
-def main() -> None:
-    train("dataset/train")
+            running_loss = 0.0
+            running_corrects = 0
 
-if __name__ == "__main__":
-    main()
+            for inputs, labels in tqdm(dataloaders[phase]):
+                inputs = inputs.to(DEVICE)
+                labels = labels.to(DEVICE)
+
+                _optimizer.zero_grad()
+
+                with torch.set_grad_enabled(phase == "train"):
+                    outputs = _model(inputs)
+                    _, preds = torch.max(outputs, 1)
+                    loss = _criterion(outputs, labels)
+
+                    if phase == "train":
+                        loss.backward()
+                        _optimizer.step()
+
+                running_loss += loss.item() * inputs.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+
+            if phase == "train":
+                _scheduler.step()
+
+            epoch_loss = running_loss / dataset_sizes[phase]
+            epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+            print(f"{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}")
+
+            if phase == "validation" and epoch_acc > best_acc:
+                best_acc = epoch_acc
+                best_model_wts = copy.deepcopy(_model.state_dict())
+
+        print()
+
+    time_elapsed = time.time() - since
+
+    print(f"Training complete in {time_elapsed // 60:.0f}m {time_elapsed % 60:.0f}s")
+    print(f"Best val Acc: {best_acc:4f}")
+    _model.load_state_dict(best_model_wts)
+
+    return _model
+
+model = train_model(model, criterion, optimizer, exp_lr_scheduler, _num_epochs=10)
